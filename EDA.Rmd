@@ -1,0 +1,273 @@
+---
+title: "NBAProject"
+author: "Kuanyu Lai"
+date: "2023-04-29"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(reshape2)
+library(sqldf)
+library(patchwork)
+```
+
+```{r}
+#read data
+draft <- read.csv("statisticsplaybook-main/statisticsplaybook-main/draft.csv",
+                  header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r}
+dim(draft)
+glimpse(draft)
+```
+```{r}
+summary(draft)
+```
+
+```{r}
+#removing variables
+draft <- select(draft, -c(3,4,16:24))
+draft <- draft[-c(90, 131),]
+
+```
+
+```{r}
+head(draft, 10)
+```
+```{r}
+#convert data type
+draft$Year <- as.factor(draft$Year)
+draft$Tm <- as.factor(draft$Tm)
+draft$Pos <- as.factor(draft$Pos)
+draft$Born <- as.factor(draft$Born)
+draft$From <- as.factor(draft$From)
+draft$To <- as.factor(draft$To)
+```
+
+```{r}
+#changing Born to either USA or WORLD
+draft <- mutate(draft, born2 = ifelse(Born == "us", "USA", "World"))
+draft$born2 <- as.factor(draft$born2)
+```
+
+```{r}
+#dealing with 0
+draft[is.na(draft)] <- 0 
+mutate(draft, College2 = ifelse(College == 0, 0, 1)) -> draft
+draft$College2 <- factor(draft$College2)
+```
+
+```{r}
+#rename positions
+levels(draft$Pos)
+
+mutate(draft, Pos2 = ifelse(Pos == "G", "Guard",
+                     ifelse(Pos == "F", "Forward",
+                     ifelse(Pos == "C", "Center",
+                     ifelse(Pos == "F-G", "Swingman",
+                     ifelse(Pos == "G-F", "Swingman",
+                     ifelse(Pos == "F-C", "Big",
+                     ifelse(Pos == "C-F", "Big", "NA")))))))) -> draft
+```
+
+```{r}
+summary(draft)
+```
+Interesting Findings:
+
+1.There is a tremendous amount of variance in career win shares. At least one first-round pick between the 2000 and 2009 NBA drafts actually accrued a negative number of win shares. And one player accrued more than 236 win shares.
+
+2.In fact, there is also significant variances in the other career statistics, namely regular season games played and average minutes played per regular season game.
+
+3.Going back to win shares, the mean, which is especially sensitive to outliers (or data points far removed from the population center), is significantly greater than the median, suggesting that the mean is skewed by a small number of superstars in the data set.
+
+4.First-round NBA draft picks between 2000 and 2009 were anywhere between 17.25 years in age and 25.02 years at the time they were selected.
+
+5.More than three-quarters of the players in draft, 224 of 291 to be exact, were born in the United States.
+
+6.Nearly the same number of players, 219 to be specific, attended college or university.
+
+## visualizing some data
+```{r}
+p1 <- ggplot(draft, aes(x = WS)) + 
+  geom_histogram(fill = "royalblue3", color = "royalblue3", bins = 8) + 
+  labs(title = "Career Win Shares Distribution of NBA First-Round Selections",
+       subtitle = "2000-09 NBA Drafts",
+       x = "Career Win Shares", y = "Frequency") +
+  theme(plot.title = element_text(face = "bold"))
+print(p1)
+```
+The variable win shares has a right-skewed, or positive-skewed, distribution–right-skewed because the distribution has a long right tail, positive-skewed because the long tail is in the positive direction of the x-axis. In layman terms, it simply means that many NBA first-round picks between the 2000 and 2009 drafts accrued very few career win shares while just a few players accrued lots of win shares.
+```{r}
+p2 <- ggplot(draft, aes(x = College2, y = WS)) + 
+  geom_boxplot(color = "orange4", fill = "orange1") +  
+  labs(title = "Career Win Shares Distribution of NBA First-Round Selections",
+       x = "", y = "Career Win Shares", subtitle = "2000-09 NBA Drafts") + 
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 8, color = "white", fill = "white") + 
+  theme(plot.title = element_text(face = "bold")) +
+  facet_wrap(~born2) + 
+  scale_x_discrete(breaks = c(0, 1),
+                        labels = c("No College", "College"))
+print(p2)
+```
+Key findings:
+
+1.Players born in the United States generally accrued more career win shares than did players born outside the US.
+
+2.Players born in the US who bypassed college generally accrued more career win shares than did US-born players who did attend a college or university.
+
+3.Alternatively, players born in any country other than the United States and who did not attend college or university generally accrued fewer win shares over their respective careers than did other players born outside the US who did attend college.
+
+4.The means are consistently higher than the medians, suggesting of course that average win shares, regardless of how the data are sliced and diced, are affected by 
+5.superstar production. More boxplots display the distribution of career win shares by year, or draft class
+```{r}
+p3 <- ggplot(draft, aes(x = Year, y = WS)) + 
+  geom_boxplot(color = "dodgerblue4", fill = "dodgerblue" ) +
+  labs(title = "Year-over_Year Win Shares Distribution of NBA First-Round Selections",
+       x = "", y = "Win Shares", subtitle = "2000-09 NBA Drafts") + 
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 8, color = "white", fill = "white") + 
+  theme(plot.title = element_text(face = "bold")) 
+print(p3)
+```
+```{r}
+draft %>%
+  filter(WS >= 75) %>%
+  group_by(Year) %>%
+  summarize(avg = mean(Pk)) -> fourth_tibble
+print(fourth_tibble)
+
+```
+## Visualizing correlations
+```{r}
+draft_cor <- select(draft, c("Age", "G","MP","WS","WS.48"))  
+draft_cor <- cor(draft_cor)
+draft_cor
+```
+
+```{r}
+draft_cor <- melt(draft_cor, na.rm = T)
+head(draft_cor)
+```
+```{r}
+p4 <- ggplot(data =draft_cor , aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(midpoint = 0.5, mid = "grey84", limits = c(-1, 1)) +
+  labs(title = "Correlation Matrix", 
+    subtitle = "Correlation Coefficients between Win Shares and Other Continuous Variables",
+    x = "", y = "", fill = "Correlation\nCoefficient", caption = "Source: draft data set") +
+  theme(plot.title = element_text(face = "bold"), 
+  legend.title = element_text(face = "bold", color = "brown", size = 10)) +
+  geom_text(aes(x = Var1, y = Var2, label = round(value, 2)), color = "black", 
+  fontface = "bold", size = 5)
+print(p4)
+```
+key findings:
+
+There are positive, and strong, correlations between win shares and regular season games played, minutes played per regular season game, and win shares for every 48 minutes of playing time. Mind you, correlation coefficients don’t tell us which variable might be influencing another variable, if in fact there is any causation at all.
+
+However, there is a negative correlation between the variables Win Shares and Age; which is to say that players entering the NBA draft between 2000 and 2009 at younger ages then accrued, generally, more career win shares than players who turned professional at “older” ages. The correlation between these variables is not strong, however. No doubt this is partially true because younger players likely have more years to play professional ball, and therefore more opportunity to accrue more win shares; but it’s also true–or at least likely so–that better players turn professional at younger ages than lesser players.
+
+## Visualize mean and median
+```{r}
+mean_median <- draft %>% 
+  dplyr::group_by(born2) %>% 
+  dplyr::summarize(meanWS = mean(WS),
+            medianWS = median(WS)) 
+```
+
+```{r}
+  p5 <- ggplot(mean_median, aes(x = born2, y = meanWS)) + 
+  geom_bar(stat = "identity", width = .5, fill  = "darkorchid4") + 
+  labs(title = "Average Career Win Shares by Place of Birth",
+       subtitle = "2000-09 NBA Drafts", 
+       x = "Where Born", y = "Average Career Win Shares") + 
+  geom_text(aes(label = trunc(meanWS), vjust = -0.3)) +
+  ylim(0, 35) +
+  theme(plot.title = element_text(face = "bold"))
+ 
+p6 <- ggplot(mean_median, aes(x = born2, y = medianWS)) + 
+  geom_bar(stat = "identity", width = .5, fill  = "sienna1") + 
+  labs(title = "Median Career Win Shares by Place of Birth",
+       subtitle = "2000-09 NBA Drafts", 
+       x = "Where Born", y = "Median Career Win Shares") + 
+  geom_text(aes(label = trunc(medianWS), vjust = -0.3)) +
+  ylim(0, 35) +
+  theme(plot.title = element_text(face = "bold"))
+
+par(mfrow = c(1,2))
+p5
+p6
+```
+key Findings:
+
+1.Players born in the US, on average, accrue more career win shares than players born elsewhere.
+
+2.The means are significantly greater than the medians. Means are sensitive to outliers whereas medians are not; that the means are greater than the medians suggests, of course, that they are influenced by superstar production where win shares per superstar is greater than 100.
+
+```{r}
+draft %>% 
+  dplyr::group_by(College2) %>%
+  dplyr::summarize(meanWS = mean(WS),
+            medianWS = median(WS)) -> ninth_tibble
+print(ninth_tibble)
+
+p7 <- ggplot(ninth_tibble, aes(x = College2, y = meanWS)) + 
+  geom_bar(stat = "identity", width = .5, fill  = "darkorchid4") + 
+  labs(title = "Average Career Win Shares: College vs. No College",
+       subtitle = "2000-09 NBA Drafts", 
+       x = "College or No College", y = "Average Career Win Shares") + 
+  scale_x_discrete(breaks = c(0, 1),
+                        labels = c("No College", "College")) +
+  geom_text(aes(label = trunc(meanWS), vjust = -0.3)) +
+  ylim(0, 35) +
+  theme(plot.title = element_text(face = "bold"))
+ 
+p8 <- ggplot(ninth_tibble, aes(x = College2, y = medianWS)) + 
+  geom_bar(stat = "identity", width = .5, fill  = "sienna1") + 
+  labs(title = "Median Career Win Shares: College vs. No College",
+       subtitle = "2000-09 NBA Drafts", 
+       x = "College or No College", y = "Median Career Win Shares") + 
+  scale_x_discrete(breaks = c(0, 1),
+                        labels = c("No College", "College")) +
+  geom_text(aes(label = trunc(medianWS), vjust = -0.3)) +
+  ylim(0, 35) +
+  theme(plot.title = element_text(face = "bold"))
+par(mfrow = c(1,2))
+p7
+p8
+```
+
+```{r}
+tenth_tibble <- draft %>% 
+                  dplyr::group_by(Pos2, born2, College2) %>%
+                  dplyr::summarize(mean = mean(WS),
+                                   median = median(WS))
+```
+```{r}
+new_labels <- c("0" = "No College", "1" = "College")
+p9 <- ggplot(tenth_tibble, aes(x = Pos2, y = mean)) + 
+  geom_bar(stat = "identity", width = .5, fill  = "slateblue4") +  
+  labs(title = "Average Win Shares by Place of Birth", x = "", y = "Win Shares",
+       subtitle = "2000-09 NBA Drafts") + 
+  theme(plot.title = element_text(face = "bold")) +
+  facet_grid(born2 ~ College2, labeller = labeller(College2 = new_labels))
+ 
+new_labels <- c("0" = "No College", "1" = "College")
+p10 <- ggplot(tenth_tibble, aes(x = Pos2, y = median)) + 
+  geom_bar(stat = "identity", width = .5, fill  = "indianred3") +  
+  labs(title = "Median Win Shares by Place of Birth", x = "", y = "Win Shares",
+       subtitle = "2000-09 NBA drafts") + 
+  theme(plot.title = element_text(face = "bold")) +
+  facet_grid(born2 ~ College2, labeller = labeller(College2 = new_labels))
+p9 + p10 + plot_layout(ncol = 2)
+```
+The most obvious, and fascinating, results found in our pair of facet plots, are in the upper-left panels. Bigs, Centers, and Swingmen born in the US who did not attend a college or university before entering the NBA draft accrued significantly more win shares, on average, than other players at other positions regardless of where they were born and regardless of whether or not they first attended college.
+```{r}
+draft -> draft2
+```
+
